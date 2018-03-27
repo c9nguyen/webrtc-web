@@ -8,6 +8,8 @@ var pc;
 var remoteStream;
 var turnReady;
 
+var io = require('socket.io-client');
+
 var pcConfig = {
   'iceServers': [{
     'urls': 'stun:stun.l.google.com:19302'
@@ -24,7 +26,7 @@ var sdpConstraints = {
 
 var room = 'foo';
 // Could prompt for room name:
- room = prompt('Enter room name:');
+// room = prompt('Enter room name:');
 
 var socket = io.connect();
 
@@ -36,6 +38,7 @@ if (room !== '') {
 socket.on('created', function(room) {
   console.log('Created room ' + room);
   isInitiator = true;
+  startStream();
 });
 
 socket.on('full', function(room) {
@@ -51,6 +54,7 @@ socket.on('join', function (room){
 socket.on('joined', function(room) {
   console.log('joined: ' + room);
   isChannelReady = true;
+  connectStream();
 });
 
 socket.on('log', function(array) {
@@ -88,19 +92,22 @@ socket.on('message', function(message) {
   }
 });
 
+function handleRemoteHangup() {
+  console.log('Session terminated.');
+  stop();
+  isInitiator = false;
+}
+
 ////////////////////////////////////////////////////
 
 var localVideo = document.querySelector('#localVideo');
 var remoteVideo = document.querySelector('#remoteVideo');
 
-navigator.mediaDevices.getUserMedia({
-  audio: false,
+var constraints = {
   video: true
-})
-.then(gotStream)
-.catch(function(e) {
-  alert('getUserMedia() error: ' + e.name);
-});
+};
+
+console.log('Getting user media with constraints', constraints);
 
 function gotStream(stream) {
   console.log('Adding local stream.');
@@ -112,74 +119,16 @@ function gotStream(stream) {
   }
 }
 
-var constraints = {
-  video: true
-};
-
-console.log('Getting user media with constraints', constraints);
-
 if (location.hostname !== 'localhost') {
   requestTurn(
     'https://computeengineondemand.appspot.com/turn?username=41784574&key=4080218913'
   );
 }
 
-function maybeStart() {
-  console.log('>>>>>>> maybeStart() ', isStarted, localStream, isChannelReady);
-  if (!isStarted && typeof localStream !== 'undefined' && isChannelReady) {
-    console.log('>>>>>> creating peer connection');
-    createPeerConnection();
-    pc.addStream(localStream);
-    isStarted = true;
-    console.log('isInitiator', isInitiator);
-    if (isInitiator) {
-      doCall();
-    }
-  }
-}
-
 window.onbeforeunload = function() {
   sendMessage('bye');
 };
 
-/////////////////////////////////////////////////////////
-
-function createPeerConnection() {
-  try {
-    pc = new RTCPeerConnection(null);
-    pc.onicecandidate = handleIceCandidate;
-    pc.onaddstream = handleRemoteStreamAdded;
-    pc.onremovestream = handleRemoteStreamRemoved;
-    console.log('Created RTCPeerConnnection');
-  } catch (e) {
-    console.log('Failed to create PeerConnection, exception: ' + e.message);
-    alert('Cannot create RTCPeerConnection object.');
-    return;
-  }
-}
-
-function handleIceCandidate(event) {
-  console.log('icecandidate event: ', event);
-  if (event.candidate) {
-    sendMessage({
-      type: 'candidate',
-      label: event.candidate.sdpMLineIndex,
-      id: event.candidate.sdpMid,
-      candidate: event.candidate.candidate
-    });
-  } else {
-    console.log('End of candidates.');
-  }
-}
-
-function handleCreateOfferError(event) {
-  console.log('createOffer() error: ', event);
-}
-
-function doCall() {
-  console.log('Sending offer to peer');
-  pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
-}
 
 function doAnswer() {
   console.log('Sending answer to peer.');
@@ -228,6 +177,80 @@ function requestTurn(turnURL) {
   }
 }
 
+function hangup() {
+  console.log('Hanging up.');
+  stop();
+  sendMessage('bye');
+}
+
+function stop() {
+  isStarted = false;
+  pc.close();
+  pc = null;
+}
+
+////////////////// Sender ///////////////////////
+
+function startStream() {
+  navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: true
+  })
+  .then(gotStream)
+  .catch(function(e) {
+    alert('getUserMedia() error: ' + e.name);
+  });
+}
+
+function maybeStart() {
+  console.log('>>>>>>> maybeStart() ', isStarted, localStream, isChannelReady);
+  if (!isStarted && typeof localStream !== 'undefined' && isChannelReady) {
+    console.log('>>>>>> creating peer connection');
+    createPeerConnection();
+    pc.addStream(localStream);
+    isStarted = true;
+    console.log('isInitiator', isInitiator);
+    doCall();
+  }
+}
+
+function createPeerConnection() {
+  try {
+    pc = new RTCPeerConnection(null);
+    pc.onicecandidate = handleIceCandidate;
+    pc.onaddstream = handleRemoteStreamAdded;
+    pc.onremovestream = handleRemoteStreamRemoved;
+    console.log('Created RTCPeerConnnection');
+  } catch (e) {
+    console.log('Failed to create PeerConnection, exception: ' + e.message);
+    alert('Cannot create RTCPeerConnection object.');
+    return;
+  }
+}
+
+function handleIceCandidate(event) {
+  console.log('icecandidate event: ', event);
+  if (event.candidate) {
+    sendMessage({
+      type: 'candidate',
+      label: event.candidate.sdpMLineIndex,
+      id: event.candidate.sdpMid,
+      candidate: event.candidate.candidate
+    });
+  } else {
+    console.log('End of candidates.');
+  }
+}
+
+function handleCreateOfferError(event) {
+  console.log('createOffer() error: ', event);
+}
+
+function doCall() {
+  console.log('Sending offer to peer');
+  pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
+}
+
 function handleRemoteStreamAdded(event) {
   console.log('Remote stream added.');
   remoteStream = event.stream;
@@ -238,20 +261,19 @@ function handleRemoteStreamRemoved(event) {
   console.log('Remote stream removed. Event: ', event);
 }
 
-function hangup() {
-  console.log('Hanging up.');
-  stop();
-  sendMessage('bye');
+////////////////// Receiver ///////////////////////
+
+
+function connectStream() {
+  navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: true
+  })
+  .then(gotStream)
+  .catch(function(e) {
+    alert('getUserMedia() error: ' + e.name);
+  });
 }
 
-function handleRemoteHangup() {
-  console.log('Session terminated.');
-  stop();
-  isInitiator = false;
-}
 
-function stop() {
-  isStarted = false;
-  pc.close();
-  pc = null;
-}
+/////////////////////////////////////////////////////////

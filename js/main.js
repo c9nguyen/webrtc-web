@@ -29,7 +29,7 @@ var room = 'foo';
 var socket = io.connect();
 
 if (room !== '') {
-  socket.emit('create or join', room);
+  socket.emit('create', room);
   console.log('Attempted to create or  join room', room);
 }
 
@@ -41,6 +41,14 @@ socket.on('created', function(room) {
 
 socket.on('full', function(room) {
   console.log('Room ' + room + ' is full');
+});
+
+socket.on('empty', function(room) {
+  console.log('Room ' + room + ' has no host');
+});
+
+socket.on('existed', function(room) {
+  console.log('Room ' + room + ' has been created, failed to create new room');
 });
 
 socket.on('join', function (room){
@@ -72,9 +80,8 @@ socket.on('message', function(message) {
   if (message === 'got user media') {
     maybeStart();
   } else if (message.type === 'offer') {
-    if (!isInitiator && !isStarted) {
-      maybeStart();
-    }
+    maybeStart();
+ 
     pc.setRemoteDescription(new RTCSessionDescription(message));
     doAnswer();
   } else if (message.type === 'answer' && isStarted) {
@@ -90,10 +97,16 @@ socket.on('message', function(message) {
   }
 });
 
+function handleRemoteHangup() {
+  console.log('Session terminated.');
+  stop();
+  isInitiator = false;
+}
+
 ////////////////////////////////////////////////////
 
 var localVideo = document.querySelector('#localVideo');
-var remoteVideo = document.querySelector('#remoteVideo');
+// var remoteVideo = document.querySelector('#remoteVideo');
 
 var constraints = {
   video: true
@@ -120,88 +133,6 @@ if (location.hostname !== 'localhost') {
 window.onbeforeunload = function() {
   sendMessage('bye');
 };
-
-
-////////////////// Sender ///////////////////////
-
-function startStream() {
-  navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: true
-  })
-  .then(gotStream)
-  .catch(function(e) {
-    alert('getUserMedia() error: ' + e.name);
-  });
-}
-
-function maybeStart() {
-  console.log('>>>>>>> maybeStart() ', isStarted, localStream, isChannelReady);
-  if (!isStarted && typeof localStream !== 'undefined' && isChannelReady) {
-    console.log('>>>>>> creating peer connection');
-    createPeerConnection();
-    pc.addStream(localStream);
-    isStarted = true;
-    console.log('isInitiator', isInitiator);
-    doCall();
-  }
-}
-
-function createPeerConnection() {
-  try {
-    pc = new RTCPeerConnection(null);
-    pc.onicecandidate = handleIceCandidate;
-    pc.onaddstream = handleRemoteStreamAdded;
-    pc.onremovestream = handleRemoteStreamRemoved;
-    console.log('Created RTCPeerConnnection');
-  } catch (e) {
-    console.log('Failed to create PeerConnection, exception: ' + e.message);
-    alert('Cannot create RTCPeerConnection object.');
-    return;
-  }
-}
-
-function handleIceCandidate(event) {
-  console.log('icecandidate event: ', event);
-  if (event.candidate) {
-    sendMessage({
-      type: 'candidate',
-      label: event.candidate.sdpMLineIndex,
-      id: event.candidate.sdpMid,
-      candidate: event.candidate.candidate
-    });
-  } else {
-    console.log('End of candidates.');
-  }
-}
-
-function handleCreateOfferError(event) {
-  console.log('createOffer() error: ', event);
-}
-
-function doCall() {
-  console.log('Sending offer to peer');
-  pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
-}
-
-
-////////////////// Receiver ///////////////////////
-
-
-function connectStream() {
-  navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: true
-  })
-  .then(gotStream)
-  .catch(function(e) {
-    alert('getUserMedia() error: ' + e.name);
-  });
-}
-
-
-/////////////////////////////////////////////////////////
-
 
 
 function doAnswer() {
@@ -251,26 +182,10 @@ function requestTurn(turnURL) {
   }
 }
 
-function handleRemoteStreamAdded(event) {
-  console.log('Remote stream added.');
-  remoteStream = event.stream;
-  remoteVideo.srcObject = remoteStream;
-}
-
-function handleRemoteStreamRemoved(event) {
-  console.log('Remote stream removed. Event: ', event);
-}
-
 function hangup() {
   console.log('Hanging up.');
   stop();
   sendMessage('bye');
-}
-
-function handleRemoteHangup() {
-  console.log('Session terminated.');
-  stop();
-  isInitiator = false;
 }
 
 function stop() {
@@ -278,3 +193,87 @@ function stop() {
   pc.close();
   pc = null;
 }
+
+////////////////// Sender ///////////////////////
+
+function startStream() {
+  navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: true
+  })
+  .then(gotStream)
+  .catch(function(e) {
+    alert('getUserMedia() error: ' + e.name);
+  });
+}
+
+function maybeStart() {
+  console.log('>>>>>>> maybeStart() ', isStarted, localStream);
+  if (!isStarted && typeof localStream !== 'undefined') {
+    console.log('>>>>>> creating peer connection');
+    createPeerConnection();
+    pc.addStream(localStream);
+    isStarted = true;
+    console.log('isInitiator', isInitiator);
+    doCall();
+  }
+}
+
+function createPeerConnection() {
+  try {
+    pc = new RTCPeerConnection(null);
+    pc.onicecandidate = handleIceCandidate;
+    // pc.onaddstream = handleRemoteStreamAdded; don't need for host
+    pc.onremovestream = handleRemoteStreamRemoved;
+    console.log('Created RTCPeerConnnection');
+  } catch (e) {
+    console.log('Failed to create PeerConnection, exception: ' + e.message);
+    alert('Cannot create RTCPeerConnection object.');
+    return;
+  }
+}
+
+function handleIceCandidate(event) {
+  console.log('icecandidate event: ', event);
+  if (event.candidate) {
+    sendMessage({
+      type: 'candidate',
+      label: event.candidate.sdpMLineIndex,
+      id: event.candidate.sdpMid,
+      candidate: event.candidate.candidate
+    });
+  } else {
+    console.log('End of candidates.');
+  }
+}
+
+function handleCreateOfferError(event) {
+  console.log('createOffer() error: ', event);
+}
+
+function doCall() {
+  console.log('Sending offer to peer');
+  pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
+}
+
+
+function handleRemoteStreamRemoved(event) {
+  console.log('Remote stream removed. Event: ', event);
+}
+
+////////////////// Receiver ///////////////////////
+
+
+function connectStream() {
+  navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: true
+  })
+  .then(gotStream)
+  .catch(function(e) {
+    alert('getUserMedia() error: ' + e.name);
+  });
+}
+
+
+/////////////////////////////////////////////////////////
