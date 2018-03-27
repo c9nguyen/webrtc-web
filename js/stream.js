@@ -8,8 +8,6 @@ var pc;
 var remoteStream;
 var turnReady;
 
-var io = require('socket.io-client');
-
 var pcConfig = {
   'iceServers': [{
     'urls': 'stun:stun.l.google.com:19302'
@@ -28,10 +26,11 @@ var room = 'foo';
 // Could prompt for room name:
 // room = prompt('Enter room name:');
 
-var socket = io.connect();
+var socket = io.connect('http://localhost:8080/');
+console.log(socket);
 
 if (room !== '') {
-  socket.emit('create or join', room);
+  socket.emit('join', room);
   console.log('Attempted to create or  join room', room);
 }
 
@@ -112,7 +111,7 @@ console.log('Getting user media with constraints', constraints);
 function gotStream(stream) {
   console.log('Adding local stream.');
   localStream = stream;
-  localVideo.srcObject = stream;
+  // localVideo.srcObject = stream;
   sendMessage('got user media');
   if (isInitiator) {
     maybeStart();

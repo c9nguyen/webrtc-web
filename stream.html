@@ -3,7 +3,7 @@
 
 <head>
 
-  <title>Realtime communication with WebRTC</title>
+  <title>Streaming</title>
 
   <link rel="stylesheet" href="/css/main.css" />
 
@@ -14,13 +14,14 @@
   <h1>Receiver</h1>
 
   <div id="videos">
+    <video id="localVideo" autoplay muted playsinline></video>
     <video id="remoteVideo" autoplay playsinline></video>
   </div>
 
   <!-- This file is automatically added/served when running "node index.js". -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
-  <script src="js/stream.js"></script>
+  <script src="js/main.js"></script>
 
 </body>
 
